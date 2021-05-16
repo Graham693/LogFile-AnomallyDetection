@@ -1,0 +1,165 @@
+---
+title: "Data 586 Project"
+output: html_notebook
+---
+
+# PCA and MCLUST in R
+```{r}
+# import the data 
+df<- read.csv("HDFS_2k-parsed_3-initialAnalysis.csv")
+df
+```
+To run PCA, we only want columns 10, 11 and 13.
+
+```{r}
+library(dplyr)
+df %>% select(10,11,13)
+```
+
+
+```{r}
+# Perform PCA
+library(tidyverse)
+logpca <- prcomp(x = df%>% select(10,11,13), scale.=TRUE)
+summary(logpca)
+```
+
+```{r}
+logpca$scale
+```
+
+```{r}
+biplot(logpca)
+```
+
+Different Principal Components
+
+```{r}
+sort(logpca$rotation[,1], decreasing = TRUE)
+```
+
+```{r}
+sort(logpca$rotation[,2], decreasing = TRUE)
+```
+```{r}
+sort(logpca$rotation[,3], decreasing = TRUE)
+```
+
+
+```{r, echo=FALSE}
+# Perform Mclustering on the top 3 principal components from PCA
+library(mclust)
+mclustering <- Mclust(logpca$x[,1:3])
+mclustering
+```
+```{r}
+summary(mclustering)
+```
+
+
+```{r, out.width="500%"}
+
+# Plot the Mclust results
+plot(mclustering, what = c("classification"))
+
+
+legend("bottom", legend = 1:9, col = mclust.options("classPlotColors"),
+      pch = mclust.options("classPlotSymbols"),
+      title = "Class labels:",
+      lty = c(1, 1, 1, 2), 
+      lwd = c(2.5, 2.5, 1, 1),
+      horiz = TRUE,
+      box.lwd = 0, bty = "n", xpd=TRUE)
+```
+
+
+
+
+
+```{r}
+
+# assingn the mclust results to the data points in the data frame
+df['m_class'] <- mclustering$classification
+df_result <- df %>% select(10:13,16,17);df_result
+```
+
+
+
+```{r}
+# count how many anomalies are in each group created from MCLUST
+library(dplyr)
+df_result %>% filter(Label == 'Anomaly') %>% count(m_class)
+```
+
+```{r}
+# count how many normals are in each group created from MCLUST
+df_result %>% filter(Label == 'Normal') %>% count(m_class)
+```
+Due to the mixed results and no definitive class in the MCLUST classification belonging to anomally or not anomally, we decided to try different approaches.
+
+# Basic Neural Net in R
+
+```{r}
+# Read a txt file produced in wrangling
+my_data <- read.delim("R_NN.txt",stringsAsFactors = TRUE)
+
+my_data$Label=unclass(my_data$Label)
+
+my_data
+```
+Note that in this example, a Label of 2 means not an  anomaly, and a label of 1 means an anomaly.
+```{r}
+library(neuralnet)
+
+## select 75% of the sample size for training and 25% sample testing
+
+smp_size <- floor(0.75 * nrow(my_data))
+
+## set the seed to make partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(my_data)), size = smp_size)
+
+# assing  training and test data indexes
+train <- my_data[train_ind, ]
+test <- my_data[-train_ind, ]
+
+#check training size
+train
+
+```
+The training set size is 1495, which make sense.
+
+```{r}
+
+# subset test data to only have tag codes, as we want to predict anomaly or not anomaly
+test_set<- subset(test,select=-c(1,2), drop=TRUE)
+
+
+# run the neural net
+nn=neuralnet(Label~tag_code0+tag_code1+tag_code3+tag_code4+tag_code5+tag_code6+tag_code7+tag_code8+tag_code9+tag_code10+tag_code11+tag_code12+tag_code13,data=train, hidden=7,act.fct = "tanh",
+          linear.output = FALSE)
+
+# check  test set, make sure it has what we want
+test_set
+```
+
+
+```{r}
+# plot the neural net
+plot(nn)
+```
+```{r}
+# check the prediction probabilities from 1 to 5 of being an anomaly
+Predict=compute(nn,test_set)
+Predict$net.result[1:5]
+
+
+```
+
+```{r}
+# check the predictions, assign 1 is if it is an anomally, 0 if it isnt
+prob <- Predict$net.result
+pred <- ifelse(prob>0.5, 1, 0)
+pred
+```
+Here we can see that every single log line was predicted to be an anomaly, which does not make sense. We will not use this model. 
